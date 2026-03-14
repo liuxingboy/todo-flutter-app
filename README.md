@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # todo_client
 
 A new Flutter project.
@@ -15,3 +16,7 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+=======
+# todo-flutter-app
+基于AI开发的前端代办事项
+>>>>>>> f75cc08d76083512297b74f60df7f4e073601481
