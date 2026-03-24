@@ -13,8 +13,27 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  
+
   bool _isLoading = false;
+  bool _rememberPassword = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+  }
+
+  // 加载保存的凭据
+  Future<void> _loadSavedCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _rememberPassword = prefs.getBool('remember_password') ?? false;
+      if (_rememberPassword) {
+        _usernameController.text = prefs.getString('saved_username') ?? '';
+        _passwordController.text = prefs.getString('saved_password') ?? '';
+      }
+    });
+  }
 
   // 核心登录逻辑
   Future<void> _login() async {
@@ -45,12 +64,23 @@ class _LoginPageState extends State<LoginPage> {
       // C++ 后端成功返回 {"code": 0}
       if (response.data['code'] == 0) {
         final data = response.data['data'];
-        
+
         // 获取本地存储实例并保存 Token
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('access_token', data['access_token']);
         await prefs.setString('refresh_token', data['refresh_token']);
         await prefs.setString('username', username);
+
+        // 处理记住密码逻辑
+        if (_rememberPassword) {
+          await prefs.setBool('remember_password', true);
+          await prefs.setString('saved_username', username);
+          await prefs.setString('saved_password', password);
+        } else {
+          await prefs.setBool('remember_password', false);
+          await prefs.remove('saved_username');
+          await prefs.remove('saved_password');
+        }
 
         // 弹出成功提示！
         if (mounted) {
@@ -115,53 +145,75 @@ class _LoginPageState extends State<LoginPage> {
         ],
       ),
       body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Icon(
-                Icons.task_alt,
-                size: 80,
-                color: Colors.deepPurple,
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                '欢迎来到 GTD',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(32.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Icon(
+                  Icons.task_alt,
+                  size: 80,
+                  color: Colors.deepPurple,
                 ),
-              ),
-              const SizedBox(height: 48),
-              // 用户名输入框
-              TextField(
-                controller: _usernameController,
-                decoration: InputDecoration(
-                  labelText: '用户名',
-                  prefixIcon: const Icon(Icons.person),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                const SizedBox(height: 24),
+                const Text(
+                  '欢迎来到 GTD',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              // 密码输入框
-              TextField(
-                controller: _passwordController,
-                obscureText: true, // 隐藏密码
-                decoration: InputDecoration(
-                  labelText: '密码',
-                  prefixIcon: const Icon(Icons.lock),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                const SizedBox(height: 48),
+                // 用户名输入框
+                TextField(
+                  controller: _usernameController,
+                  decoration: InputDecoration(
+                    labelText: '用户名',
+                    prefixIcon: const Icon(Icons.person),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 32),
-              // 登录按钮
+                const SizedBox(height: 16),
+                // 密码输入框
+                TextField(
+                  controller: _passwordController,
+                  obscureText: true, // 隐藏密码
+                  decoration: InputDecoration(
+                    labelText: '密码',
+                    prefixIcon: const Icon(Icons.lock),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // 记住密码选项
+                Row(
+                  children: [
+                    SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: Checkbox(
+                        value: _rememberPassword,
+                        onChanged: (bool? value) {
+                          setState(() {
+                            _rememberPassword = value ?? false;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text('记住密码'),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                // 登录按钮
               SizedBox(
                 height: 50,
                 child: FilledButton(
@@ -195,6 +247,7 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
       ),
+    )
     );
   }
 }
