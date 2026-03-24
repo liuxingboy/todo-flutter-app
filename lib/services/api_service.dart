@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 class ApiService {
   static final ApiService _instance = ApiService._internal();
@@ -21,6 +22,17 @@ class ApiService {
     return _instance;
   }
 
+  // 获取基础 URL
+  String getBaseUrlSync(SharedPreferences prefs) {
+    if (kIsWeb) {
+      return "/api"; // Web 走 Nginx 代理
+    } else {
+      String ip = prefs.getString('server_ip') ?? defaultIp;
+      String port = prefs.getString('server_port') ?? defaultPort;
+      return "http://$ip:$port/api"; // 其他端直连后端
+    }
+  }
+
   ApiService._internal() {
     dio = Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 10),
@@ -31,9 +43,7 @@ class ApiService {
     dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) async {
         SharedPreferences prefs = await SharedPreferences.getInstance();
-        String ip = prefs.getString('server_ip') ?? defaultIp;
-        String port = prefs.getString('server_port') ?? defaultPort;
-        options.baseUrl = "http://$ip:$port/api";
+        options.baseUrl = getBaseUrlSync(prefs);
 
         String? token = prefs.getString('access_token');
         if (token != null && token.isNotEmpty) {
@@ -164,8 +174,6 @@ class ApiService {
 
   Future<String> getBaseUrl() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    String ip = prefs.getString('server_ip') ?? defaultIp;
-    String port = prefs.getString('server_port') ?? defaultPort;
-    return "http://$ip:$port/api";
+    return getBaseUrlSync(prefs);
   }
 }
