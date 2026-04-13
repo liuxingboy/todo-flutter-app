@@ -42,6 +42,18 @@ class TodoProvider with ChangeNotifier {
     _loadUserInfo();
   }
 
+  // 全局刷新：重新拉取所有数据
+  Future<void> refreshAll() async {
+    // 并发执行所有拉取操作
+    await Future.wait([
+      fetchMyDay(),
+      fetchPools(),
+      fetchNotes(),
+      fetchSharedFiles(),
+      _loadUserInfo(),
+    ]);
+  }
+
   Future<void> _loadUserInfo() async {
     final prefs = await SharedPreferences.getInstance();
     // 假设登录时存了 username，如果没有，则需要从 token 解析或专门接口获取
@@ -180,6 +192,25 @@ class TodoProvider with ChangeNotifier {
       return false;
     } catch (e) {
       print("Delete Pool Error: $e");
+      return false;
+    }
+  }
+
+  Future<bool> deletePoolTask(int poolId, int taskId) async {
+    try {
+      final response = await ApiService().dio.delete('/pools/tasks/$taskId');
+      if (response.data['code'] == 0) {
+        // 本地移除任务
+        final poolIndex = _pools.indexWhere((p) => p.id == poolId);
+        if (poolIndex != -1) {
+          _pools[poolIndex].tasks.removeWhere((t) => t.id == taskId);
+          notifyListeners();
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      print("Delete Pool Task Error: $e");
       return false;
     }
   }

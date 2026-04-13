@@ -110,6 +110,37 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
     );
   }
 
+  // 弹窗：删除池内任务确认
+  void _showDeleteTaskConfirm(int poolId, int taskId, String taskTitle) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确定要删除该任务吗？'),
+        content: Text('任务：$taskTitle'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final success = await context.read<TodoProvider>().deletePoolTask(poolId, taskId);
+              if (mounted) {
+                if (!success) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('❌ 删除失败，请重试'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('删除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<TodoProvider>();
@@ -139,20 +170,35 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
                   ),
                   children: [
                     ...pool.tasks.map((task) {
-                      return ListTile(
-                        contentPadding: const EdgeInsets.only(left: 40, right: 16),
-                        title: Text(task.title),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.input, color: Colors.blue),
-                          tooltip: '导入到我的一天',
-                          onPressed: () async {
-                            await provider.importToMyDay(task.id);
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('已导入到“我的一天”')),
-                              );
-                            }
-                          },
+                      return Dismissible(
+                        key: Key('task_${task.id}'),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          color: Colors.red,
+                          child: const Icon(Icons.delete, color: Colors.white),
+                        ),
+                        confirmDismiss: (direction) async {
+                          _showDeleteTaskConfirm(pool.id, task.id, task.title);
+                          return false; // 由弹窗确认后调用 provider 删除，不在这里直接移除
+                        },
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.only(left: 40, right: 16),
+                          title: Text(task.title),
+                          onLongPress: () => _showDeleteTaskConfirm(pool.id, task.id, task.title),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.input, color: Colors.blue),
+                            tooltip: '导入到我的一天',
+                            onPressed: () async {
+                              await provider.importToMyDay(task.id);
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('已导入到“我的一天”')),
+                                );
+                              }
+                            },
+                          ),
                         ),
                       );
                     }),

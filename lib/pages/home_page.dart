@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
+import '../providers/todo_provider.dart';
 import 'tabs/my_day_tab.dart';
 import 'tabs/task_pool_tab.dart';
 import 'tabs/notes_tab.dart';
@@ -88,6 +90,38 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _handleRefresh() async {
+    // 弹出加载提示
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('正在同步数据...'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+
+    try {
+      await context.read<TodoProvider>().refreshAll();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ 数据已同步'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ 刷新失败: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -98,8 +132,9 @@ class _HomePageState extends State<HomePage> {
         scrolledUnderElevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout, color: Colors.grey),
-            onPressed: _logout,
+            icon: const Icon(Icons.refresh, color: Colors.grey),
+            onPressed: _handleRefresh,
+            tooltip: '刷新',
           ),
         ],
       ),

@@ -15,7 +15,7 @@ class ApiService {
   // 等待刷新完成的请求队列
   List<void Function(String)> _failedRequestsQueue = [];
 
-  static const String defaultIp = "8.138.22.227";
+  static const String defaultIp = "8.138.16.235";
   static const String defaultPort = "8080";
 
   factory ApiService() {
