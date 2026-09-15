@@ -1,9 +1,15 @@
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import '../models/todo_models.dart';
 import '../services/api_service.dart';
+import '../services/android_downloads.dart';
+import '../services/browser_download.dart'
+    if (dart.library.js_interop) '../services/browser_download_web.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class TodoProvider with ChangeNotifier {
@@ -37,6 +43,8 @@ class TodoProvider with ChangeNotifier {
 
   Map<int, double> _downloadProgress = {};
   Map<int, double> get downloadProgress => _downloadProgress;
+  final Map<int, String> downloadLocations = {};
+  final Map<int, String> downloadErrors = {};
 
   TodoProvider() {
     _loadUserInfo();
@@ -321,15 +329,62 @@ class TodoProvider with ChangeNotifier {
   }
 
   Future<bool> downloadFile(SharedFile file) async {
+    if (_downloadProgress.containsKey(file.id)) return false;
+    downloadLocations.remove(file.id);
+    downloadErrors.remove(file.id);
+    _downloadProgress[file.id] = 0;
+    notifyListeners();
     try {
-      // 获取下载目录
-      Directory? downloadsDirectory;
-      if (Platform.isAndroid) {
-        downloadsDirectory = Directory('/storage/emulated/0/Download');
-      } else {
-        downloadsDirectory = await getDownloadsDirectory();
+      if (kIsWeb) {
+        final response = await ApiService().dio.get<List<int>>(
+          '/files/download/${file.id}',
+          options: Options(
+            responseType: ResponseType.bytes,
+            validateStatus: (status) => status == 200,
+          ),
+          onReceiveProgress: (received, total) {
+            if (total > 0) {
+              _downloadProgress[file.id] = (received / total).clamp(0.0, 1.0);
+              notifyListeners();
+            }
+          },
+        );
+        final bytes = response.data;
+        if (response.statusCode != 200 || bytes == null) return false;
+        saveBrowserDownload(Uint8List.fromList(bytes), file.fileName);
+        return true;
       }
 
+      if (Platform.isAndroid) {
+        // Download privately first, then publish through Android's storage APIs.
+        final cache = await getTemporaryDirectory();
+        final temporary = await cache.createTemp('gtd-download-');
+        try {
+          final sourcePath = '${temporary.path}/payload';
+          await ApiService().dio.download(
+            '/files/download/${file.id}',
+            sourcePath,
+            options: Options(validateStatus: (status) => status == 200),
+            onReceiveProgress: (received, total) {
+              if (total > 0) {
+                _downloadProgress[file.id] = (received / total).clamp(0.0, 1.0);
+                notifyListeners();
+              }
+            },
+          );
+          downloadLocations[file.id] = await AndroidDownloads.save(sourcePath, file.fileName);
+          return true;
+        } finally {
+          // Cleanup must not turn an already completed save into a failure.
+          try {
+            await temporary.delete(recursive: true);
+          } catch (e) {
+            debugPrint('Download temporary cleanup failed: $e');
+          }
+        }
+      }
+
+      Directory? downloadsDirectory = await getDownloadsDirectory();
       if (downloadsDirectory == null) {
         downloadsDirectory = await getApplicationDocumentsDirectory();
       }
@@ -360,15 +415,16 @@ class TodoProvider with ChangeNotifier {
         },
       );
 
-      _downloadProgress.remove(file.id);
-      notifyListeners();
-
       return response.statusCode == 200;
     } catch (e) {
+      downloadErrors[file.id] = e is PlatformException
+          ? (e.message ?? '文件保存失败，请重新选择下载目录')
+          : '文件下载失败，请检查网络、登录状态和剩余空间后重试';
       print("Download File Error: $e");
+      return false;
+    } finally {
       _downloadProgress.remove(file.id);
       notifyListeners();
-      return false;
     }
   }
 

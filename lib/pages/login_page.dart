@@ -153,10 +153,16 @@ class _LoginPageState extends State<LoginPage> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Icon(
-                  Icons.task_alt,
-                  size: 80,
-                  color: Colors.deepPurple,
+                Center(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: Image.asset(
+                      'assets/branding/app_icon.png',
+                      width: 96,
+                      height: 96,
+                      semanticLabel: 'GTD 任务助手',
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 24),
                 const Text(

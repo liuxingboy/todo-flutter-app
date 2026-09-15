@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../providers/todo_provider.dart';
@@ -148,11 +149,20 @@ class _SharedFilesPageState extends State<SharedFilesPage> {
                                       ? null
                                       : () async {
                                           final success = await provider.downloadFile(file);
-                                          if (mounted && success) {
+                                          if (mounted) {
                                             ScaffoldMessenger.of(context).showSnackBar(
-                                              const SnackBar(
-                                                content: Text('✅ 文件下载成功'),
-                                                backgroundColor: Colors.green,
+                                              SnackBar(
+                                                content: Text(success
+                                                    ? (kIsWeb
+                                                        ? '✅ 已交给浏览器下载，请查看下载列表'
+                                                        : (provider.downloadLocations[file.id] != null
+                                                            ? '✅ 已保存到 ${provider.downloadLocations[file.id]}'
+                                                            : '✅ 文件下载成功'))
+                                                    : '❌ ${provider.downloadErrors[file.id] ?? '文件下载失败，请重试'}'),
+                                                duration: const Duration(seconds: 6),
+                                                backgroundColor: success
+                                                    ? Colors.green
+                                                    : Colors.red,
                                               ),
                                             );
                                           }
