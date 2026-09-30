@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:typed_data';
 
@@ -11,19 +12,35 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:todo_client/models/todo_models.dart';
 import 'package:todo_client/providers/todo_provider.dart';
 import 'package:todo_client/services/api_service.dart';
+import 'package:todo_client/services/browser_download_web.dart';
 import 'package:web/web.dart' as web;
 
 class DownloadAdapter implements HttpClientAdapter {
-  DownloadAdapter(this.status, this.bytes);
+  DownloadAdapter(
+    this.status, {
+    this.url = '/api/files/browser-download/7?ticket=test',
+  });
   final int status;
-  final List<int> bytes;
+  final String url;
 
   @override
-  Future<ResponseBody> fetch(RequestOptions options,
-      Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
-    expect(options.path, '/files/download/7');
-    expect(options.responseType, ResponseType.bytes);
-    return ResponseBody.fromBytes(bytes, status);
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    expect(options.path, '/files/download-ticket/7');
+    expect(options.method, 'POST');
+    return ResponseBody.fromString(
+      jsonEncode({
+        'code': status == 200 ? 0 : status,
+        'data': {'download_url': url},
+      }),
+      status,
+      headers: {
+        'content-type': ['application/json'],
+      },
+    );
   }
 
   @override
@@ -45,7 +62,10 @@ void main() {
       final target = event.target;
       if (target != null && target.isA<web.HTMLAnchorElement>()) {
         final anchor = target as web.HTMLAnchorElement;
-        expect(anchor.href, startsWith('blob:'));
+        expect(
+          anchor.getAttribute('href'),
+          '/api/files/browser-download/7?ticket=test',
+        );
         downloads.add(anchor.download);
         event.preventDefault(); // Verify dispatch without saving test files.
       }
@@ -63,27 +83,58 @@ void main() {
   });
 
   SharedFile file(String name) => SharedFile(
-        id: 7, fileName: name, size: 0, uploadTime: '', uploader: 'test');
+    id: 7,
+    fileName: name,
+    size: 0,
+    uploadTime: '',
+    uploader: 'test',
+  );
 
-  test('web download dispatches original Unicode filename and clears progress', () async {
-    ApiService().dio = Dio()..httpClientAdapter = DownloadAdapter(200, [0, 1, 255]);
-    final result = await provider.downloadFile(file('共享 文档.txt'));
-    expect(result, isTrue);
-    expect(downloads, ['共享 文档.txt']);
-    expect(provider.downloadProgress, isEmpty);
-  });
+  test(
+    'web download dispatches original Unicode filename and clears progress',
+    () async {
+      ApiService().dio = Dio()..httpClientAdapter = DownloadAdapter(200);
+      final result = await provider.downloadFile(file('共享 文档.txt'));
+      expect(result, isTrue);
+      expect(downloads, ['共享 文档.txt']);
+      expect(provider.downloadProgress, isEmpty);
+    },
+  );
 
   test('empty extensionless files can also be downloaded', () async {
-    ApiService().dio = Dio()..httpClientAdapter = DownloadAdapter(200, []);
+    ApiService().dio = Dio()..httpClientAdapter = DownloadAdapter(200);
     expect(await provider.downloadFile(file('README')), isTrue);
     expect(downloads, ['README']);
     expect(provider.downloadProgress, isEmpty);
   });
 
-  test('HTTP failure does not save an error response and clears progress', () async {
-    ApiService().dio = Dio()..httpClientAdapter = DownloadAdapter(404, [123, 125]);
-    expect(await provider.downloadFile(file('missing.txt')), isFalse);
+  test(
+    'HTTP failure does not save an error response and clears progress',
+    () async {
+      ApiService().dio = Dio()..httpClientAdapter = DownloadAdapter(404);
+      expect(await provider.downloadFile(file('missing.txt')), isFalse);
+      expect(downloads, isEmpty);
+      expect(provider.downloadProgress, isEmpty);
+    },
+  );
+
+  test('rejects external download URLs', () async {
+    ApiService().dio = Dio()
+      ..httpClientAdapter = DownloadAdapter(
+        200,
+        url: 'https://example.com/file',
+      );
+    expect(await provider.downloadFile(file('test.txt')), isFalse);
     expect(downloads, isEmpty);
     expect(provider.downloadProgress, isEmpty);
+  });
+
+  test('rejects unrelated and protocol-relative URLs', () {
+    for (final url in [
+      '//example.com/api/files/browser-download/7',
+      '/api/auth/login',
+    ]) {
+      expect(() => saveBrowserDownload(url, 'test.txt'), throwsArgumentError);
+    }
   });
 }

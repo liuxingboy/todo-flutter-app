@@ -134,7 +134,7 @@ class _SharedFilesPageState extends State<SharedFilesPage> {
                                 Text(file.uploadTime, style: const TextStyle(fontSize: 12, color: Colors.grey)),
                                 if (progress != null) ...[
                                   const SizedBox(height: 8),
-                                  LinearProgressIndicator(value: progress),
+                                  LinearProgressIndicator(value: kIsWeb ? null : progress),
                                 ]
                               ],
                             ),
@@ -154,7 +154,7 @@ class _SharedFilesPageState extends State<SharedFilesPage> {
                                               SnackBar(
                                                 content: Text(success
                                                     ? (kIsWeb
-                                                        ? '✅ 已交给浏览器下载，请查看下载列表'
+                                                        ? '已发起下载，请查看浏览器的下载提示或下载列表'
                                                         : (provider.downloadLocations[file.id] != null
                                                             ? '✅ 已保存到 ${provider.downloadLocations[file.id]}'
                                                             : '✅ 文件下载成功'))

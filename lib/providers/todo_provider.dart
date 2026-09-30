@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
@@ -336,22 +335,19 @@ class TodoProvider with ChangeNotifier {
     notifyListeners();
     try {
       if (kIsWeb) {
-        final response = await ApiService().dio.get<List<int>>(
-          '/files/download/${file.id}',
+        final response = await ApiService().dio.post<Map<String, dynamic>>(
+          '/files/download-ticket/${file.id}',
           options: Options(
-            responseType: ResponseType.bytes,
             validateStatus: (status) => status == 200,
           ),
-          onReceiveProgress: (received, total) {
-            if (total > 0) {
-              _downloadProgress[file.id] = (received / total).clamp(0.0, 1.0);
-              notifyListeners();
-            }
-          },
         );
-        final bytes = response.data;
-        if (response.statusCode != 200 || bytes == null) return false;
-        saveBrowserDownload(Uint8List.fromList(bytes), file.fileName);
+        final data = response.data;
+        if (response.statusCode != 200 || data == null || data['code'] != 0) {
+          return false;
+        }
+        final url = data['data']?['download_url'];
+        if (url is! String || url.isEmpty) return false;
+        saveBrowserDownload(url, file.fileName);
         return true;
       }
 

@@ -1,17 +1,14 @@
-import 'dart:async';
-import 'dart:js_interop';
-import 'dart:typed_data';
-
 import 'package:web/web.dart' as web;
 
-void saveBrowserDownload(Uint8List bytes, String fileName) {
-  final blob = web.Blob(
-    [bytes.toJS].toJS,
-    web.BlobPropertyBag(type: 'application/octet-stream'),
-  );
-  final url = web.URL.createObjectURL(blob);
+void saveBrowserDownload(String downloadUrl, String fileName) {
+  final url = Uri.parse(downloadUrl);
+  if (url.hasScheme ||
+      url.hasAuthority ||
+      !url.path.startsWith('/api/files/browser-download/')) {
+    throw ArgumentError('Invalid browser download URL');
+  }
   final anchor = web.HTMLAnchorElement()
-    ..href = url
+    ..href = downloadUrl
     ..download = fileName
     ..style.display = 'none';
   try {
@@ -19,7 +16,5 @@ void saveBrowserDownload(Uint8List bytes, String fileName) {
     anchor.click();
   } finally {
     anchor.remove();
-    // Let the browser consume the URL before releasing the file data.
-    Timer(const Duration(minutes: 1), () => web.URL.revokeObjectURL(url));
   }
 }
