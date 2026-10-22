@@ -21,12 +21,32 @@ class TodoProvider with ChangeNotifier {
   bool _isMyDayLoading = false;
   List<Todo> get myDayTodos => _myDayTodos;
   bool get isMyDayLoading => _isMyDayLoading;
+  String? _serverTaskDate;
+  DateTime get taskDate => _serverTaskDate == null
+      ? taskDateForInstant(DateTime.now())
+      : DateTime.parse(_serverTaskDate!);
 
   // --- 任务池 (Pools) 数据 ---
   List<TodoPool> _pools = [];
   bool _isPoolsLoading = false;
   List<TodoPool> get pools => _pools;
   bool get isPoolsLoading => _isPoolsLoading;
+
+  List<LongTermGoal> _goals = [];
+  List<LongTermGoal> get goals => _goals;
+  bool _isGoalsLoading = false;
+  bool get isGoalsLoading => _isGoalsLoading;
+  bool _isGoalSaving = false;
+  bool get isGoalSaving => _isGoalSaving;
+  String? _goalsError;
+  String? get goalsError => _goalsError;
+  String? _goalActionError;
+  String? get goalActionError => _goalActionError;
+  int _goalsFetchVersion = 0;
+  int _myDayFetchVersion = 0;
+  final Set<int> _updatingTodoIds = {};
+  bool isTodoUpdating(int id) => _updatingTodoIds.contains(id);
+  bool get isGoalBusy => _isGoalSaving || _updatingTodoIds.isNotEmpty;
 
   // --- 灵感便签 (Notes) 数据 ---
   List<Note> _notes = [];
@@ -55,6 +75,7 @@ class TodoProvider with ChangeNotifier {
     await Future.wait([
       fetchMyDay(),
       fetchPools(),
+      fetchGoals(),
       fetchNotes(),
       fetchSharedFiles(),
       _loadUserInfo(),
@@ -71,18 +92,20 @@ class TodoProvider with ChangeNotifier {
   // ==================== 我的一天 (My Day) 逻辑 ====================
 
   Future<void> fetchMyDay() async {
+    final version = ++_myDayFetchVersion;
     _isMyDayLoading = true;
     notifyListeners();
     try {
       final response = await ApiService().dio.get('/myday');
-      if (response.data['code'] == 0) {
+      if (response.data['code'] == 0 && version == _myDayFetchVersion) {
         List list = response.data['data'];
         _myDayTodos = list.map((item) => Todo.fromJson(item)).toList();
+        _serverTaskDate = response.data['task_date'];
       }
     } catch (e) {
       print("Fetch MyDay Error: $e");
     } finally {
-      _isMyDayLoading = false;
+      if (version == _myDayFetchVersion) _isMyDayLoading = false;
       notifyListeners();
     }
   }
@@ -90,7 +113,10 @@ class TodoProvider with ChangeNotifier {
   Future<void> addTodo(String content) async {
     try {
       // 后端要求字段名为 content
-      final response = await ApiService().dio.post('/myday', data: {'content': content});
+      final response = await ApiService().dio.post(
+        '/myday',
+        data: {'content': content},
+      );
       if (response.data['code'] == 0) {
         await fetchMyDay();
       }
@@ -99,26 +125,162 @@ class TodoProvider with ChangeNotifier {
     }
   }
 
-  Future<void> toggleTodoStatus(Todo todo) async {
+  Future<bool> toggleTodoStatus(Todo todo) async {
+    if (isTodoUpdating(todo.id) || (todo.goalTaskId != null && isGoalBusy)) {
+      return false;
+    }
+    _updatingTodoIds.add(todo.id);
     final oldStatus = todo.isCompleted;
     todo.isCompleted = !todo.isCompleted;
     notifyListeners();
 
     try {
-      final response = await ApiService().dio.put('/myday/status', data: {
-        'task_id': todo.id,
-        'is_completed': todo.isCompleted
-      });
+      final response = await ApiService().dio.put(
+        '/myday/status',
+        data: {'task_id': todo.id, 'is_completed': todo.isCompleted},
+      );
       if (response.data['code'] != 0) {
         todo.isCompleted = oldStatus;
-        notifyListeners();
+        return false;
       }
+      if (todo.goalTaskId != null) await refreshTaskViews();
+      return true;
     } catch (e) {
       todo.isCompleted = oldStatus;
-      notifyListeners();
       print("Toggle Status Error: $e");
+      return false;
+    } finally {
+      _updatingTodoIds.remove(todo.id);
+      notifyListeners();
     }
   }
+
+  // Goal tasks keep one persistent completion state, shared by all views.
+  Future<void> refreshTaskViews() async {
+    await Future.wait([fetchMyDay(), fetchGoals()]);
+  }
+
+  Future<void> fetchGoals() async {
+    final version = ++_goalsFetchVersion;
+    _isGoalsLoading = true;
+    _goalsError = null;
+    notifyListeners();
+    try {
+      final response = await ApiService().dio.get('/goals');
+      if (response.statusCode != 200 ||
+          response.data is! Map ||
+          response.data['code'] != 0 ||
+          response.data['data'] is! List) {
+        throw StateError('Invalid goal response');
+      }
+      final goals = (response.data['data'] as List)
+          .map((item) => LongTermGoal.fromJson(item))
+          .toList();
+      if (version == _goalsFetchVersion) _goals = goals;
+    } catch (e) {
+      if (version == _goalsFetchVersion) {
+        _goalsError = '长期目标同步失败，请检查连接或确认后端已更新后重试';
+      }
+    } finally {
+      if (version == _goalsFetchVersion) _isGoalsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> _mutateGoal(
+    String method,
+    String path, {
+    Map<String, dynamic>? data,
+    VoidCallback? onSuccess,
+  }) async {
+    if (isGoalBusy) return false;
+    _isGoalSaving = true;
+    _goalActionError = null;
+    notifyListeners();
+    try {
+      final response = await ApiService().dio.request(
+        path,
+        data: data,
+        options: Options(method: method),
+      );
+      if (response.statusCode != 200 ||
+          response.data is! Map ||
+          response.data['code'] != 0) {
+        _goalActionError = response.statusCode == 409
+            ? '该子任务已经完成，请先取消完成再加入今天'
+            : '操作失败，请检查连接并刷新后重试';
+        return false;
+      }
+      // Invalidate reads started before this mutation, including on slow clients.
+      ++_goalsFetchVersion;
+      ++_myDayFetchVersion;
+      onSuccess?.call();
+      notifyListeners();
+      await refreshTaskViews();
+      return true;
+    } catch (e) {
+      _goalActionError = '操作失败，请检查连接并刷新后重试';
+      return false;
+    } finally {
+      _isGoalSaving = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> saveGoal({
+    int? id,
+    required String title,
+    required String description,
+    String? deadline,
+  }) => _mutateGoal(
+    id == null ? 'POST' : 'PUT',
+    id == null ? '/goals' : '/goals/$id',
+    data: {
+      'title': title.trim(),
+      'description': description,
+      'deadline': deadline,
+    },
+  );
+
+  Future<bool> deleteGoal(int id) => _mutateGoal(
+    'DELETE',
+    '/goals/$id',
+    onSuccess: () {
+      _goals.removeWhere((goal) => goal.id == id);
+      _myDayTodos.removeWhere((todo) => todo.goalId == id);
+    },
+  );
+
+  Future<bool> saveGoalTask({
+    required int goalId,
+    int? taskId,
+    required String content,
+    String? deadline,
+  }) => _mutateGoal(
+    taskId == null ? 'POST' : 'PUT',
+    taskId == null ? '/goals/$goalId/tasks' : '/goals/tasks/$taskId',
+    data: {'content': content.trim(), 'deadline': deadline},
+  );
+
+  Future<bool> deleteGoalTask(int taskId) => _mutateGoal(
+    'DELETE',
+    '/goals/tasks/$taskId',
+    onSuccess: () {
+      for (final goal in _goals) {
+        goal.tasks.removeWhere((task) => task.id == taskId);
+      }
+      _myDayTodos.removeWhere((todo) => todo.goalTaskId == taskId);
+    },
+  );
+
+  Future<bool> setGoalTaskStatus(int taskId, bool completed) => _mutateGoal(
+    'PUT',
+    '/goals/tasks/$taskId/status',
+    data: {'is_completed': completed},
+  );
+
+  Future<bool> addGoalTaskToMyDay(int taskId) =>
+      _mutateGoal('POST', '/goals/tasks/$taskId/myday');
 
   // ==================== 任务池 (Pools) 逻辑 ====================
 
@@ -142,7 +304,10 @@ class TodoProvider with ChangeNotifier {
   Future<void> importToMyDay(int poolTaskId) async {
     try {
       // 后端要求字段名为 pool_task_id
-      final response = await ApiService().dio.post('/myday/import', data: {'pool_task_id': poolTaskId});
+      final response = await ApiService().dio.post(
+        '/myday/import',
+        data: {'pool_task_id': poolTaskId},
+      );
       if (response.data['code'] == 0) {
         fetchMyDay();
       }
@@ -155,7 +320,10 @@ class TodoProvider with ChangeNotifier {
 
   Future<void> addPool(String poolName) async {
     try {
-      final response = await ApiService().dio.post('/pools', data: {'pool_name': poolName});
+      final response = await ApiService().dio.post(
+        '/pools',
+        data: {'pool_name': poolName},
+      );
       final data = response.data;
       if (data is Map && data['code'] == 0) {
         fetchPools();
@@ -167,10 +335,10 @@ class TodoProvider with ChangeNotifier {
 
   Future<void> addTaskToPool(int poolId, String content) async {
     try {
-      final response = await ApiService().dio.post('/pools/task', data: {
-        'pool_id': poolId,
-        'content': content,
-      });
+      final response = await ApiService().dio.post(
+        '/pools/task',
+        data: {'pool_id': poolId, 'content': content},
+      );
 
       final data = response.data;
       // 增加类型判断，防止后端返回非 JSON 导致崩溃
@@ -187,9 +355,10 @@ class TodoProvider with ChangeNotifier {
 
   Future<bool> deletePool(int poolId) async {
     try {
-      final response = await ApiService().dio.delete('/pools', data: {
-        'pool_id': poolId,
-      });
+      final response = await ApiService().dio.delete(
+        '/pools',
+        data: {'pool_id': poolId},
+      );
 
       if (response.data['code'] == 0) {
         _pools.removeWhere((p) => p.id == poolId);
@@ -252,10 +421,10 @@ class TodoProvider with ChangeNotifier {
 
   Future<void> updateNote(int id, String content) async {
     try {
-      final response = await ApiService().dio.put('/notes', data: {
-        'note_id': id,
-        'content': content
-      });
+      final response = await ApiService().dio.put(
+        '/notes',
+        data: {'note_id': id, 'content': content},
+      );
       if (response.data['code'] == 0) {
         fetchNotes();
       }
@@ -266,7 +435,10 @@ class TodoProvider with ChangeNotifier {
 
   Future<bool> deleteNote(int id) async {
     try {
-      final response = await ApiService().dio.delete('/notes', data: {'note_id': id});
+      final response = await ApiService().dio.delete(
+        '/notes',
+        data: {'note_id': id},
+      );
       if (response.data['code'] == 0) {
         _notes.removeWhere((note) => note.id == id);
         notifyListeners();
@@ -307,7 +479,10 @@ class TodoProvider with ChangeNotifier {
         'file': await MultipartFile.fromFile(filePath, filename: fileName),
       });
 
-      final response = await ApiService().dio.post('/files/upload', data: formData);
+      final response = await ApiService().dio.post(
+        '/files/upload',
+        data: formData,
+      );
       final data = response.data;
 
       if (data is Map && data['code'] == 0) {
@@ -337,9 +512,7 @@ class TodoProvider with ChangeNotifier {
       if (kIsWeb) {
         final response = await ApiService().dio.post<Map<String, dynamic>>(
           '/files/download-ticket/${file.id}',
-          options: Options(
-            validateStatus: (status) => status == 200,
-          ),
+          options: Options(validateStatus: (status) => status == 200),
         );
         final data = response.data;
         if (response.statusCode != 200 || data == null || data['code'] != 0) {
@@ -368,7 +541,10 @@ class TodoProvider with ChangeNotifier {
               }
             },
           );
-          downloadLocations[file.id] = await AndroidDownloads.save(sourcePath, file.fileName);
+          downloadLocations[file.id] = await AndroidDownloads.save(
+            sourcePath,
+            file.fileName,
+          );
           return true;
         } finally {
           // Cleanup must not turn an already completed save into a failure.
@@ -396,7 +572,8 @@ class TodoProvider with ChangeNotifier {
         String extension = file.fileName.contains('.')
             ? file.fileName.substring(file.fileName.lastIndexOf('.'))
             : '';
-        savePath = "${downloadsDirectory.path}/$nameWithoutExtension($count)$extension";
+        savePath =
+            "${downloadsDirectory.path}/$nameWithoutExtension($count)$extension";
         count++;
       }
 

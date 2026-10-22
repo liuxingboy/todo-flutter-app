@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/todo_provider.dart';
+import '../../widgets/goal_widgets.dart';
 
 class TaskPoolTab extends StatefulWidget {
-  const TaskPoolTab({super.key});
+  const TaskPoolTab({super.key, this.onManageGoals});
+  final VoidCallback? onManageGoals;
 
   @override
   State<TaskPoolTab> createState() => _TaskPoolTabState();
@@ -13,7 +15,12 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => context.read<TodoProvider>().fetchPools());
+    Future.microtask(() {
+      if (!mounted) return;
+      final provider = context.read<TodoProvider>();
+      provider.fetchPools();
+      provider.fetchGoals();
+    });
   }
 
   // 弹窗：新建任务池
@@ -29,7 +36,10 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
           decoration: const InputDecoration(hintText: '池子名称（如：面试准备）'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
           TextButton(
             onPressed: () {
               if (controller.text.isNotEmpty) {
@@ -57,11 +67,17 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
           decoration: const InputDecoration(hintText: '任务内容'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
           TextButton(
             onPressed: () {
               if (controller.text.isNotEmpty) {
-                context.read<TodoProvider>().addTaskToPool(poolId, controller.text);
+                context.read<TodoProvider>().addTaskToPool(
+                  poolId,
+                  controller.text,
+                );
                 Navigator.pop(context);
               }
             },
@@ -80,11 +96,16 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
         title: const Text('确认删除该任务池吗？'),
         content: Text('池子 [$poolName] 内的所有任务模板也会被一并清空，此操作不可逆！'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
-              final success = await context.read<TodoProvider>().deletePool(poolId);
+              final success = await context.read<TodoProvider>().deletePool(
+                poolId,
+              );
               if (mounted) {
                 if (success) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -118,11 +139,17 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
         title: const Text('确定要删除该任务吗？'),
         content: Text('任务：$taskTitle'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
-              final success = await context.read<TodoProvider>().deletePoolTask(poolId, taskId);
+              final success = await context.read<TodoProvider>().deletePoolTask(
+                poolId,
+                taskId,
+              );
               if (mounted) {
                 if (!success) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -149,8 +176,96 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
       body: provider.isPoolsLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView.builder(
-              itemCount: provider.pools.length,
+              padding: const EdgeInsets.only(bottom: 88),
+              itemCount: provider.pools.length + 1,
               itemBuilder: (context, index) {
+                if (index == provider.pools.length) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Divider(),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                '长期目标',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            if (widget.onManageGoals != null)
+                              TextButton(
+                                onPressed: widget.onManageGoals,
+                                child: const Text('管理'),
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (provider.isGoalsLoading)
+                        const LinearProgressIndicator(),
+                      if (provider.goalsError != null)
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            children: [
+                              Text(provider.goalsError!),
+                              TextButton(
+                                onPressed: provider.isGoalsLoading
+                                    ? null
+                                    : provider.fetchGoals,
+                                child: const Text('重试'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ...provider.goals.map(
+                        (goal) => ExpansionTile(
+                          key: PageStorageKey('pool-goal-${goal.id}'),
+                          leading: const Icon(
+                            Icons.flag_outlined,
+                            color: Colors.blue,
+                          ),
+                          title: Text(
+                            goal.title,
+                            style: TextStyle(
+                              decoration: goal.isExpired || goal.isCompleted
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                              color: goal.isExpired || goal.isCompleted
+                                  ? Colors.grey
+                                  : null,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${goal.completedTasks}/${goal.tasks.length} 已完成'
+                            '${goal.isExpired
+                                ? ' · 已过期'
+                                : goal.isCompleted
+                                ? ' · 已完成'
+                                : ''}',
+                          ),
+                          childrenPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                          ),
+                          children: [
+                            GoalTaskList(goal: goal, selectForToday: true),
+                          ],
+                        ),
+                      ),
+                      if (!provider.isGoalsLoading &&
+                          provider.goalsError == null &&
+                          provider.goals.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text('在“长期目标”中创建目标后，子任务会出现在这里。'),
+                        ),
+                    ],
+                  );
+                }
                 final pool = provider.pools[index];
                 return ExpansionTile(
                   leading: const Icon(Icons.folder_open, color: Colors.orange),
@@ -159,12 +274,20 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.add_circle_outline, color: Colors.green),
-                        onPressed: () => _showAddTaskToPoolDialog(pool.id, pool.name),
+                        icon: const Icon(
+                          Icons.add_circle_outline,
+                          color: Colors.green,
+                        ),
+                        onPressed: () =>
+                            _showAddTaskToPoolDialog(pool.id, pool.name),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                        onPressed: () => _showDeletePoolConfirm(pool.id, pool.name),
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.redAccent,
+                        ),
+                        onPressed: () =>
+                            _showDeletePoolConfirm(pool.id, pool.name),
                       ),
                     ],
                   ),
@@ -184,9 +307,16 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
                           return false; // 由弹窗确认后调用 provider 删除，不在这里直接移除
                         },
                         child: ListTile(
-                          contentPadding: const EdgeInsets.only(left: 40, right: 16),
+                          contentPadding: const EdgeInsets.only(
+                            left: 40,
+                            right: 16,
+                          ),
                           title: Text(task.title),
-                          onLongPress: () => _showDeleteTaskConfirm(pool.id, task.id, task.title),
+                          onLongPress: () => _showDeleteTaskConfirm(
+                            pool.id,
+                            task.id,
+                            task.title,
+                          ),
                           trailing: IconButton(
                             icon: const Icon(Icons.input, color: Colors.blue),
                             tooltip: '导入到我的一天',
@@ -204,8 +334,11 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
                     }),
                     if (pool.tasks.isEmpty)
                       const ListTile(
-                        title: Text('此池子暂无任务', style: TextStyle(color: Colors.grey, fontSize: 13)),
-                      )
+                        title: Text(
+                          '此池子暂无任务',
+                          style: TextStyle(color: Colors.grey, fontSize: 13),
+                        ),
+                      ),
                   ],
                 );
               },

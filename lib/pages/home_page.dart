@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import '../providers/todo_provider.dart';
+import '../models/todo_models.dart';
 import 'tabs/my_day_tab.dart';
 import 'tabs/task_pool_tab.dart';
 import 'tabs/notes_tab.dart';
+import 'tabs/goals_tab.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -13,15 +17,73 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _currentIndex = 0;
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+  Timer? _dateTimer;
+  DateTime _lastDate = taskDateForInstant(DateTime.now());
+  bool _wideLayout = false;
 
-  final List<Widget> _tabs = [
-    const MyDayTab(),
-    const NotesTab(), // 调整顺序
-  ];
+  final List<String> _titles = ['我的一天', '长期目标', '灵感便签'];
 
-  final List<String> _titles = ['我的一天', '灵感便签'];
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _dateTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted ||
+          WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+        return;
+      }
+      final date = taskDateForInstant(DateTime.now());
+      if (date != _lastDate) {
+        _lastDate = date;
+        context.read<TodoProvider>().refreshTaskViews();
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _lastDate = taskDateForInstant(DateTime.now());
+      context.read<TodoProvider>().refreshTaskViews();
+      context.read<TodoProvider>().fetchPools();
+    }
+  }
+
+  @override
+  void dispose() {
+    _dateTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  void _closeDrawer() {
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      _scaffoldKey.currentState?.closeDrawer();
+    }
+  }
+
+  void _openTaskPool() {
+    setState(() => _currentIndex = 0);
+    if (!_wideLayout) _scaffoldKey.currentState?.openDrawer();
+  }
+
+  void _openGoals() {
+    _closeDrawer();
+    setState(() => _currentIndex = 1);
+  }
+
+  Widget _navigation() => NavigationBar(
+    selectedIndex: _currentIndex,
+    onDestinationSelected: (index) => setState(() => _currentIndex = index),
+    destinations: const [
+      NavigationDestination(icon: Icon(Icons.sunny), label: '我的一天'),
+      NavigationDestination(icon: Icon(Icons.flag_outlined), label: '长期目标'),
+      NavigationDestination(icon: Icon(Icons.note_alt), label: '便签墙'),
+    ],
+  );
 
   void _showDonateDialog() {
     showDialog(
@@ -67,7 +129,10 @@ class _HomePageState extends State<HomePage> {
             const Text(
               '感谢支持独立开发！',
               textAlign: TextAlign.center,
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple),
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.deepPurple,
+              ),
             ),
           ],
         ),
@@ -113,10 +178,7 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ 刷新失败: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('❌ 刷新失败: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -124,9 +186,11 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    _wideLayout = MediaQuery.sizeOf(context).width >= 1000;
     return Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
-        title: Text(_titles[_currentIndex == 0 ? 0 : 1]), // 简单处理
+        title: Text(_titles[_currentIndex]),
         backgroundColor: Colors.white,
         elevation: 0,
         scrolledUnderElevation: 0,
@@ -139,76 +203,91 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       // 将任务池改为侧滑抽屉 (Pool Drawer)
-      drawer: Drawer(
-        child: Column(
-          children: [
-            DrawerHeader(
-              decoration: const BoxDecoration(color: Colors.blue),
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.pool, size: 48, color: Colors.white),
-                    const SizedBox(height: 8),
-                    const Text('任务分类池', style: TextStyle(color: Colors.white, fontSize: 20)),
-                  ],
-                ),
-              ),
-            ),
-            const Expanded(child: TaskPoolTab()),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.favorite, color: Colors.redAccent),
-              title: const Text('打赏支持'),
-              onTap: () {
-                Navigator.pop(context); // 关闭 Drawer
-                _showDonateDialog();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.cloud_circle, color: Colors.blue),
-              title: const Text('共享文件大厅'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(context, '/shared_files');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.settings, color: Colors.blueGrey),
-              title: const Text('连接设置'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(context, '/settings');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.grey),
-              title: const Text('退出登录'),
-              onTap: () {
-                Navigator.pop(context);
-                _logout();
-              },
-            ),
-            const SizedBox(height: 16),
+      drawer: _wideLayout ? null : Drawer(child: _poolPanel()),
+      body: Row(
+        children: [
+          if (_wideLayout) ...[
+            SizedBox(width: 320, child: _poolPanel()),
+            const VerticalDivider(width: 1),
           ],
-        ),
-      ),
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _tabs,
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.sunny), label: '我的一天'),
-          NavigationDestination(icon: Icon(Icons.note_alt), label: '便签墙'),
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: [
+                MyDayTab(onOpenPool: _openTaskPool),
+                GoalsTab(onOpenPool: _openTaskPool),
+                const NotesTab(),
+              ],
+            ),
+          ),
         ],
       ),
+      bottomNavigationBar: _wideLayout ? null : _navigation(),
     );
   }
+
+  Widget _poolPanel() => SafeArea(
+    child: Column(
+      children: [
+        if (_wideLayout) _navigation(),
+        if (_wideLayout)
+          const Padding(
+            padding: EdgeInsets.all(12),
+            child: Text('任务分类池', style: TextStyle(fontSize: 18)),
+          ),
+        if (!_wideLayout)
+          DrawerHeader(
+            decoration: const BoxDecoration(color: Colors.blue),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.pool, size: 48, color: Colors.white),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '任务分类池',
+                    style: TextStyle(color: Colors.white, fontSize: 20),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        Expanded(child: TaskPoolTab(onManageGoals: _openGoals)),
+        const Divider(),
+        ListTile(
+          leading: const Icon(Icons.favorite, color: Colors.redAccent),
+          title: const Text('打赏支持'),
+          onTap: () {
+            _closeDrawer();
+            _showDonateDialog();
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.cloud_circle, color: Colors.blue),
+          title: const Text('共享文件大厅'),
+          onTap: () {
+            _closeDrawer();
+            Navigator.pushNamed(context, '/shared_files');
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.settings, color: Colors.blueGrey),
+          title: const Text('连接设置'),
+          onTap: () {
+            _closeDrawer();
+            Navigator.pushNamed(context, '/settings');
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.logout, color: Colors.grey),
+          title: const Text('退出登录'),
+          onTap: () {
+            _closeDrawer();
+            _logout();
+          },
+        ),
+        const SizedBox(height: 16),
+      ],
+    ),
+  );
 }

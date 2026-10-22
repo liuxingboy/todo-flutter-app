@@ -4,7 +4,8 @@ import 'package:intl/intl.dart';
 import '../../providers/todo_provider.dart';
 
 class MyDayTab extends StatefulWidget {
-  const MyDayTab({super.key});
+  const MyDayTab({super.key, this.onOpenPool});
+  final VoidCallback? onOpenPool;
 
   @override
   State<MyDayTab> createState() => _MyDayTabState();
@@ -16,7 +17,15 @@ class _MyDayTabState extends State<MyDayTab> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => context.read<TodoProvider>().fetchMyDay());
+    Future.microtask(() {
+      if (mounted) context.read<TodoProvider>().fetchMyDay();
+    });
+  }
+
+  @override
+  void dispose() {
+    _inputController.dispose();
+    super.dispose();
   }
 
   void _submitTask() {
@@ -31,7 +40,7 @@ class _MyDayTabState extends State<MyDayTab> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<TodoProvider>();
-    final today = DateTime.now();
+    final today = provider.taskDate;
     final dateStr = DateFormat('MM月dd日').format(today);
     final weekdayStr = DateFormat('EEEE', 'zh_CN').format(today);
 
@@ -48,15 +57,15 @@ class _MyDayTabState extends State<MyDayTab> {
                 Text(
                   '我的一天',
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blue[800],
-                      ),
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue[800],
+                  ),
                 ),
                 Text(
-                  '$dateStr, $weekdayStr',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Colors.grey[600],
-                      ),
+                  '$dateStr, $weekdayStr · 每天 04:00 更新',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleMedium?.copyWith(color: Colors.grey[600]),
                 ),
               ],
             ),
@@ -67,7 +76,9 @@ class _MyDayTabState extends State<MyDayTab> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Card(
               elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
@@ -87,12 +98,25 @@ class _MyDayTabState extends State<MyDayTab> {
                     IconButton(
                       icon: const Icon(Icons.arrow_upward),
                       onPressed: _submitTask,
-                    )
+                    ),
                   ],
                 ),
               ),
             ),
           ),
+
+          if (widget.onOpenPool != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: widget.onOpenPool,
+                  icon: const Icon(Icons.playlist_add),
+                  label: const Text('从任务池选取'),
+                ),
+              ),
+            ),
 
           // 3. 任务列表
           Expanded(
@@ -108,24 +132,63 @@ class _MyDayTabState extends State<MyDayTab> {
                         margin: const EdgeInsets.only(bottom: 8),
                         child: Card(
                           elevation: 0,
-                          color: todo.isCompleted ? Colors.grey[100] : Colors.white,
+                          color: todo.isCompleted || todo.isExpired
+                              ? Colors.grey[100]
+                              : Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                             side: BorderSide(color: Colors.grey[200]!),
                           ),
                           child: CheckboxListTile(
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                            ),
                             title: Text(
                               todo.title,
                               style: TextStyle(
-                                decoration: todo.isCompleted ? TextDecoration.lineThrough : null,
-                                color: todo.isCompleted ? Colors.grey : Colors.black87,
+                                decoration: todo.isCompleted || todo.isExpired
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                                color: todo.isCompleted || todo.isExpired
+                                    ? Colors.grey
+                                    : Colors.black87,
                               ),
                             ),
+                            subtitle: todo.goalTaskId == null
+                                ? null
+                                : Text(
+                                    [
+                                      '长期目标 · ${todo.goalTitle}',
+                                      if (todo.isExpired && !todo.isCompleted)
+                                        '已过期',
+                                      if (todo.deadline != null)
+                                        '${todo.deadline} 截止',
+                                    ].join(' · '),
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
                             value: todo.isCompleted,
                             activeColor: Colors.blue,
-                            checkboxShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                            onChanged: (_) => provider.toggleTodoStatus(todo),
+                            checkboxShape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            onChanged:
+                                provider.isTodoUpdating(todo.id) ||
+                                    (todo.goalTaskId != null &&
+                                        provider.isGoalBusy)
+                                ? null
+                                : (_) async {
+                                    final success = await provider
+                                        .toggleTodoStatus(todo);
+                                    if (context.mounted && !success) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('状态更新失败，请刷新后重试'),
+                                        ),
+                                      );
+                                    }
+                                  },
                           ),
                         ),
                       );
