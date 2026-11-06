@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,7 +9,9 @@ import 'pages/home_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/shared_files_page.dart';
 import 'providers/todo_provider.dart';
+import 'providers/theme_preferences.dart';
 import 'services/api_service.dart';
+import 'widgets/windows_caption_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,8 +27,11 @@ void main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => TodoProvider()),
+        ChangeNotifierProvider(create: (_) => ThemePreferences(prefs)),
       ],
-      child: MyApp(initialRoute: (token != null && token.isNotEmpty) ? '/home' : '/login'),
+      child: MyApp(
+        initialRoute: (token != null && token.isNotEmpty) ? '/home' : '/login',
+      ),
     ),
   );
 }
@@ -37,14 +43,17 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final appearance = context.watch<ThemePreferences>();
     return MaterialApp(
       title: 'Todo Client',
       navigatorKey: ApiService.navigatorKey, // 绑定 GlobalKey
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
+      theme: appearance.themeFor(Brightness.light),
+      darkTheme: appearance.themeFor(Brightness.dark),
+      themeMode: appearance.mode,
+      builder: !kIsWeb && defaultTargetPlatform == TargetPlatform.windows
+          ? (_, child) => WindowsCaptionTheme(child: child!)
+          : null,
       initialRoute: initialRoute,
       routes: {
         '/login': (context) => const LoginPage(),

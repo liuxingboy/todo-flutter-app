@@ -410,16 +410,22 @@ class TodoProvider with ChangeNotifier {
     }
   }
 
-  Future<void> addNote(String content) async {
+  Future<bool> addNote(String content) async {
     try {
-      await ApiService().dio.post('/notes', data: {'content': content});
+      final response = await ApiService().dio.post(
+        '/notes',
+        data: {'content': content},
+      );
+      if (response.data['code'] != 0) return false;
       fetchNotes();
+      return true;
     } catch (e) {
       print("Add Note Error: $e");
+      return false;
     }
   }
 
-  Future<void> updateNote(int id, String content) async {
+  Future<bool> updateNote(int id, String content) async {
     try {
       final response = await ApiService().dio.put(
         '/notes',
@@ -427,10 +433,12 @@ class TodoProvider with ChangeNotifier {
       );
       if (response.data['code'] == 0) {
         fetchNotes();
+        return true;
       }
     } catch (e) {
       print("Update Note Error: $e");
     }
+    return false;
   }
 
   Future<bool> deleteNote(int id) async {

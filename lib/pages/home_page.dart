@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import '../providers/todo_provider.dart';
 import '../models/todo_models.dart';
@@ -23,8 +22,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Timer? _dateTimer;
   DateTime _lastDate = taskDateForInstant(DateTime.now());
   bool _wideLayout = false;
+  bool _sidebarCollapsed = false;
 
   final List<String> _titles = ['我的一天', '长期目标', '灵感便签'];
+  static const _destinations = [
+    NavigationDestination(icon: Icon(Icons.sunny), label: '我的一天'),
+    NavigationDestination(icon: Icon(Icons.flag_outlined), label: '长期目标'),
+    NavigationDestination(icon: Icon(Icons.note_alt), label: '便签墙'),
+  ];
 
   @override
   void initState() {
@@ -66,7 +71,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _openTaskPool() {
-    setState(() => _currentIndex = 0);
+    setState(() {
+      _currentIndex = 0;
+      _sidebarCollapsed = false;
+    });
     if (!_wideLayout) _scaffoldKey.currentState?.openDrawer();
   }
 
@@ -78,82 +86,46 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _navigation() => NavigationBar(
     selectedIndex: _currentIndex,
     onDestinationSelected: (index) => setState(() => _currentIndex = index),
-    destinations: const [
-      NavigationDestination(icon: Icon(Icons.sunny), label: '我的一天'),
-      NavigationDestination(icon: Icon(Icons.flag_outlined), label: '长期目标'),
-      NavigationDestination(icon: Icon(Icons.note_alt), label: '便签墙'),
-    ],
+    destinations: _destinations,
   );
 
-  void _showDonateDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('打赏作者', textAlign: TextAlign.center),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.network(
-                'http://8.138.22.227:8080/api/donate/qr',
-                width: 250,
-                height: 250,
-                fit: BoxFit.cover,
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return const SizedBox(
-                    width: 250,
-                    height: 250,
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                },
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    width: 250,
-                    height: 250,
-                    color: Colors.grey[100],
-                    child: const Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.broken_image, size: 48, color: Colors.grey),
-                        SizedBox(height: 8),
-                        Text('二维码加载失败', style: TextStyle(color: Colors.grey)),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              '感谢支持独立开发！',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.deepPurple,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
+  void _openSettings() {
+    _closeDrawer();
+    Navigator.pushNamed(context, '/settings', arguments: true);
   }
 
-  Future<void> _logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('access_token');
-    await prefs.remove('refresh_token');
-    if (mounted) {
-      Navigator.pushReplacementNamed(context, '/login');
-    }
+  void _openSharedFiles() {
+    _closeDrawer();
+    Navigator.pushNamed(context, '/shared_files');
   }
+
+  Widget _compactNavigation() => NavigationRail(
+    selectedIndex: _currentIndex,
+    onDestinationSelected: (index) => setState(() => _currentIndex = index),
+    scrollable: true,
+    destinations: [
+      for (final destination in _destinations)
+        NavigationRailDestination(
+          icon: Tooltip(message: destination.label, child: destination.icon),
+          label: Text(destination.label),
+        ),
+    ],
+    trailing: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.cloud_circle_outlined),
+          tooltip: '共享文件大厅',
+          onPressed: _openSharedFiles,
+        ),
+        IconButton(
+          icon: const Icon(Icons.settings_outlined),
+          tooltip: '设置',
+          onPressed: _openSettings,
+        ),
+      ],
+    ),
+  );
 
   Future<void> _handleRefresh() async {
     // 弹出加载提示
@@ -187,30 +159,45 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     _wideLayout = MediaQuery.sizeOf(context).width >= 1000;
+    final colors = Theme.of(context).colorScheme;
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(
+        leading: _wideLayout
+            ? IconButton(
+                icon: Icon(_sidebarCollapsed ? Icons.menu : Icons.menu_open),
+                tooltip: _sidebarCollapsed ? '展开侧栏' : '收起侧栏',
+                onPressed: () => setState(() {
+                  _sidebarCollapsed = !_sidebarCollapsed;
+                }),
+              )
+            : null,
         title: Text(_titles[_currentIndex]),
-        backgroundColor: Colors.white,
         elevation: 0,
         scrolledUnderElevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.grey),
+            icon: const Icon(Icons.refresh),
             onPressed: _handleRefresh,
             tooltip: '刷新',
           ),
         ],
       ),
       // 将任务池改为侧滑抽屉 (Pool Drawer)
-      drawer: _wideLayout ? null : Drawer(child: _poolPanel()),
+      drawer: _wideLayout ? null : Drawer(child: _poolPanel(colors)),
       body: Row(
         children: [
           if (_wideLayout) ...[
-            SizedBox(width: 320, child: _poolPanel()),
+            Visibility(
+              visible: !_sidebarCollapsed,
+              maintainState: true,
+              child: SizedBox(width: 320, child: _poolPanel(colors)),
+            ),
+            if (_sidebarCollapsed) _compactNavigation(),
             const VerticalDivider(width: 1),
           ],
           Expanded(
+            key: const ValueKey('home-content'),
             child: IndexedStack(
               index: _currentIndex,
               children: [
@@ -226,7 +213,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _poolPanel() => SafeArea(
+  Widget _poolPanel(ColorScheme colors) => SafeArea(
     child: Column(
       children: [
         if (_wideLayout) _navigation(),
@@ -237,16 +224,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         if (!_wideLayout)
           DrawerHeader(
-            decoration: const BoxDecoration(color: Colors.blue),
+            decoration: BoxDecoration(color: colors.primaryContainer),
             child: Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.pool, size: 48, color: Colors.white),
+                  Icon(Icons.pool, size: 48, color: colors.onPrimaryContainer),
                   const SizedBox(height: 8),
-                  const Text(
+                  Text(
                     '任务分类池',
-                    style: TextStyle(color: Colors.white, fontSize: 20),
+                    style: TextStyle(
+                      color: colors.onPrimaryContainer,
+                      fontSize: 20,
+                    ),
                   ),
                 ],
               ),
@@ -255,36 +245,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         Expanded(child: TaskPoolTab(onManageGoals: _openGoals)),
         const Divider(),
         ListTile(
-          leading: const Icon(Icons.favorite, color: Colors.redAccent),
-          title: const Text('打赏支持'),
-          onTap: () {
-            _closeDrawer();
-            _showDonateDialog();
-          },
-        ),
-        ListTile(
           leading: const Icon(Icons.cloud_circle, color: Colors.blue),
           title: const Text('共享文件大厅'),
-          onTap: () {
-            _closeDrawer();
-            Navigator.pushNamed(context, '/shared_files');
-          },
+          onTap: _openSharedFiles,
         ),
         ListTile(
           leading: const Icon(Icons.settings, color: Colors.blueGrey),
-          title: const Text('连接设置'),
-          onTap: () {
-            _closeDrawer();
-            Navigator.pushNamed(context, '/settings');
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.logout, color: Colors.grey),
-          title: const Text('退出登录'),
-          onTap: () {
-            _closeDrawer();
-            _logout();
-          },
+          title: const Text('设置'),
+          onTap: _openSettings,
         ),
         const SizedBox(height: 16),
       ],

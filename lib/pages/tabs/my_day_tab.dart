@@ -40,6 +40,7 @@ class _MyDayTabState extends State<MyDayTab> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<TodoProvider>();
+    final colors = Theme.of(context).colorScheme;
     final today = provider.taskDate;
     final dateStr = DateFormat('MM月dd日').format(today);
     final weekdayStr = DateFormat('EEEE', 'zh_CN').format(today);
@@ -58,14 +59,14 @@ class _MyDayTabState extends State<MyDayTab> {
                   '我的一天',
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: Colors.blue[800],
+                    color: colors.primary,
                   ),
                 ),
                 Text(
                   '$dateStr, $weekdayStr · 每天 04:00 更新',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleMedium?.copyWith(color: Colors.grey[600]),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -83,7 +84,7 @@ class _MyDayTabState extends State<MyDayTab> {
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
                   children: [
-                    const Icon(Icons.add, color: Colors.blue),
+                    Icon(Icons.add, color: colors.primary),
                     const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
@@ -133,11 +134,11 @@ class _MyDayTabState extends State<MyDayTab> {
                         child: Card(
                           elevation: 0,
                           color: todo.isCompleted || todo.isExpired
-                              ? Colors.grey[100]
-                              : Colors.white,
+                              ? colors.surfaceContainerHigh
+                              : colors.surfaceContainerLow,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(color: Colors.grey[200]!),
+                            side: BorderSide(color: colors.outlineVariant),
                           ),
                           child: CheckboxListTile(
                             contentPadding: const EdgeInsets.symmetric(
@@ -150,8 +151,8 @@ class _MyDayTabState extends State<MyDayTab> {
                                     ? TextDecoration.lineThrough
                                     : null,
                                 color: todo.isCompleted || todo.isExpired
-                                    ? Colors.grey
-                                    : Colors.black87,
+                                    ? colors.onSurfaceVariant
+                                    : colors.onSurface,
                               ),
                             ),
                             subtitle: todo.goalTaskId == null
@@ -167,7 +168,6 @@ class _MyDayTabState extends State<MyDayTab> {
                                     style: const TextStyle(fontSize: 12),
                                   ),
                             value: todo.isCompleted,
-                            activeColor: Colors.blue,
                             checkboxShape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(6),
                             ),

@@ -15,8 +15,26 @@ class ApiService {
   // 等待刷新完成的请求队列
   List<void Function(String)> _failedRequestsQueue = [];
 
-  static const String defaultIp = "8.138.16.235";
-  static const String defaultPort = "8080";
+  static const String defaultIp = "todo.maopc.icu";
+  static const String defaultPort = "443";
+
+  // Only the retired production address is migrated; custom servers stay intact.
+  static bool _usesRetiredServer(SharedPreferences prefs) =>
+      prefs.getString('server_ip') == '8.138.16.235' &&
+      (prefs.getString('server_port') ?? '8080') == '8080';
+
+  static String serverHost(SharedPreferences prefs) => _usesRetiredServer(prefs)
+      ? defaultIp
+      : prefs.getString('server_ip') ?? defaultIp;
+
+  static String serverPort(SharedPreferences prefs) => _usesRetiredServer(prefs)
+      ? defaultPort
+      : prefs.getString('server_port') ?? defaultPort;
+
+  static bool serverUsesHttps(SharedPreferences prefs) => _usesRetiredServer(prefs)
+      ? true
+      : prefs.getBool('server_https') ??
+          (serverHost(prefs) == defaultIp && serverPort(prefs) == defaultPort);
 
   factory ApiService() {
     return _instance;
@@ -25,11 +43,10 @@ class ApiService {
   // 获取基础 URL
   String getBaseUrlSync(SharedPreferences prefs) {
     if (kIsWeb) {
-      return "/api"; // Web 走 Nginx 代理
+      return "/api"; // Web uses the current site's reverse proxy.
     } else {
-      String ip = prefs.getString('server_ip') ?? defaultIp;
-      String port = prefs.getString('server_port') ?? defaultPort;
-      return "http://$ip:$port/api"; // 其他端直连后端
+      final scheme = serverUsesHttps(prefs) ? 'https' : 'http';
+      return "$scheme://${serverHost(prefs)}:${serverPort(prefs)}/api";
     }
   }
 
@@ -166,10 +183,11 @@ class ApiService {
     navigatorKey.currentState?.pushNamedAndRemoveUntil('/login', (route) => false);
   }
 
-  Future<void> updateSettings(String ip, String port) async {
+  Future<void> updateSettings(String ip, String port, {bool useHttps = false}) async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setString('server_ip', ip);
     await prefs.setString('server_port', port);
+    await prefs.setBool('server_https', useHttps);
   }
 
   Future<String> getBaseUrl() async {

@@ -171,12 +171,28 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<TodoProvider>();
+    final colors = Theme.of(context).colorScheme;
 
     return Scaffold(
+      primary: false,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(56),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _showAddPoolDialog,
+              icon: const Icon(Icons.create_new_folder_outlined),
+              label: const Text('新建任务池'),
+            ),
+          ),
+        ),
+      ),
       body: provider.isPoolsLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView.builder(
-              padding: const EdgeInsets.only(bottom: 88),
+              padding: const EdgeInsets.only(bottom: 12),
               itemCount: provider.pools.length + 1,
               itemBuilder: (context, index) {
                 if (index == provider.pools.length) {
@@ -236,7 +252,7 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
                                   ? TextDecoration.lineThrough
                                   : null,
                               color: goal.isExpired || goal.isCompleted
-                                  ? Colors.grey
+                                  ? colors.onSurfaceVariant
                                   : null,
                             ),
                           ),
@@ -333,21 +349,19 @@ class _TaskPoolTabState extends State<TaskPoolTab> {
                       );
                     }),
                     if (pool.tasks.isEmpty)
-                      const ListTile(
+                      ListTile(
                         title: Text(
                           '此池子暂无任务',
-                          style: TextStyle(color: Colors.grey, fontSize: 13),
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
+                            fontSize: 13,
+                          ),
                         ),
                       ),
                   ],
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddPoolDialog,
-        backgroundColor: Colors.orange,
-        child: const Icon(Icons.create_new_folder),
-      ),
     );
   }
 }
